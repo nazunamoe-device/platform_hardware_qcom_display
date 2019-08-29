@@ -2229,7 +2229,12 @@ const char *GetTokenValue(const char *uevent_data, int length, const char *token
 android::status_t HWCSession::SetDsiClk(const android::Parcel *input_parcel) {
   int disp_id = input_parcel->readInt32();
   uint64_t clk = UINT64(input_parcel->readInt64());
-  if (disp_id < 0 || !hwc_display_[disp_id]) {
+  if (disp_id < 0) {
+    return -EINVAL;
+  }
+
+  SEQUENCE_WAIT_SCOPE_LOCK(locker_[disp_id]);
+  if (!hwc_display_[disp_id]) {
     return -EINVAL;
   }
 
@@ -2239,7 +2244,12 @@ android::status_t HWCSession::SetDsiClk(const android::Parcel *input_parcel) {
 android::status_t HWCSession::GetDsiClk(const android::Parcel *input_parcel,
                                         android::Parcel *output_parcel) {
   int disp_id = input_parcel->readInt32();
-  if (disp_id < 0 || !hwc_display_[disp_id]) {
+  if (disp_id < 0) {
+    return -EINVAL;
+  }
+
+  SEQUENCE_WAIT_SCOPE_LOCK(locker_[disp_id]);
+  if (!hwc_display_[disp_id]) {
     return -EINVAL;
   }
 
@@ -2253,7 +2263,12 @@ android::status_t HWCSession::GetDsiClk(const android::Parcel *input_parcel,
 android::status_t HWCSession::GetSupportedDsiClk(const android::Parcel *input_parcel,
                                                  android::Parcel *output_parcel) {
   int disp_id = input_parcel->readInt32();
-  if (disp_id < 0 || !hwc_display_[disp_id]) {
+  if (disp_id < 0) {
+    return -EINVAL;
+  }
+
+  SCOPE_LOCK(locker_[disp_id]);
+  if (!hwc_display_[disp_id]) {
     return -EINVAL;
   }
 
@@ -2272,7 +2287,12 @@ void HWCSession::UEventHandler(const char *uevent_data, int length) {
   // uevent handling will be done once when SurfaceFlinger connects, at RegisterCallback(). Since
   // HandlePluggableDisplays() reads the latest connection states of all displays, no uevent is
   // lost.
-  if (client_connected_ && strcasestr(uevent_data, HWC_UEVENT_DRM_EXT_HOTPLUG)) {
+  callbacks_lock_.Lock();
+  // Guarded check in case client (SurfaceFlinger) is connecting i.e., doing HWC2_CALLBACK_HOTPLUG
+  // registration and subsequent [seconds long] hotplug handling operation.
+  bool client_connected = client_connected_;
+  callbacks_lock_.Unlock();
+  if (client_connected && strcasestr(uevent_data, HWC_UEVENT_DRM_EXT_HOTPLUG)) {
     // MST hotplug will not carry connection status/test pattern etc.
     // Pluggable display handler will check all connection status' and take action accordingly.
     const char *str_status = GetTokenValue(uevent_data, length, "status=");
